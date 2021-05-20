@@ -1,0 +1,109 @@
+name: 🚀 Deploy images
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  base:
+    runs-on: ubuntu-latest
+    env:
+      DIR: base
+      IMAGE_NAME: elkevinwolf/base
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+      - name: Cache Docker layers
+        uses: actions/cache@v2
+        with:
+          path: /tmp/.buildx-cache-${{ env.DIR }}
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+      - name: Login to DockerHub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+      - name: Get Meta
+        id: meta
+        run: |
+          echo ::set-output name=version::$(cat ${{ env.DIR }}/version)
+          echo ::set-output name=description::$(cat ${{ env.DIR }}/description)
+      - name: Build and push
+        uses: docker/build-push-action@v2
+        with:
+          context: ${{ env.DIR }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }},${{ env.IMAGE_NAME }}
+          cache-from: type=local,src=/tmp/.buildx-cache-${{ env.DIR }}
+          cache-to: type=local,dest=/tmp/.buildx-cache-${{ env.DIR }}-new
+      - name: Update DockerHub Description
+        uses: peter-evans/dockerhub-description@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+          repository: ${{ env.IMAGE_NAME }}
+          readme-filepath: ${{ env.DIR }}/readme.md
+          short-description: ${{ steps.meta.outputs.description }}
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache-${{ env.DIR }}
+          mv /tmp/.buildx-cache-${{ env.DIR }}-new /tmp/.buildx-cache-${{ env.DIR }}
+
+  node:
+    needs: base
+    runs-on: ubuntu-latest
+    env:
+      DIR: node
+      IMAGE_NAME: elkevinwolf/node
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+      - name: Cache Docker layers
+        uses: actions/cache@v2
+        with:
+          path: /tmp/.buildx-cache-${{ env.DIR }}
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+      - name: Login to DockerHub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+      - name: Get Meta
+        id: meta
+        run: |
+          echo ::set-output name=base::elkevinwolf/base:$(cat base/version)
+          echo ::set-output name=version::$(cat ${{ env.DIR }}/version)
+          echo ::set-output name=description::$(cat ${{ env.DIR }}/description)
+      - name: Build and push
+        uses: docker/build-push-action@v2
+        with:
+          context: ${{ env.DIR }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }},${{ env.IMAGE_NAME }}
+          cache-from: type=local,src=/tmp/.buildx-cache-${{ env.DIR }}
+          cache-to: type=local,dest=/tmp/.buildx-cache-${{ env.DIR }}-new
+          build-args: BASE=${{ steps.meta.outputs.base }}
+      - name: Update DockerHub Description
+        uses: peter-evans/dockerhub-description@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+          repository: ${{ env.IMAGE_NAME }}
+          readme-filepath: ${{ env.DIR }}/readme.md
+          short-description: ${{ steps.meta.outputs.description }}
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache-${{ env.DIR }}
+          mv /tmp/.buildx-cache-${{ env.DIR }}-new /tmp/.buildx-cache-${{ env.DIR }}
